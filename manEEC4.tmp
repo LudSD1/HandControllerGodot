@@ -1,0 +1,20 @@
+[gd_scene load_steps=3 format=3 uid="uid://0wqyrpajcx4d"]
+
+[ext_resource type="PackedScene" uid="uid://b844v5d32a3tc" path="res://mano.gltf" id="1_7x7fr"]
+[ext_resource type="Script" path="res://mano.gd" id="2_o6ojg"]
+
+[node name="Node3D" type="Node3D"]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.547449, 0.568913, -0.613708, 0.815799, -0.199406, 0.542871, 0.186469, -0.797857, -0.573283, -2.29344, 12.6312, -1.23248)
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="DirectionalLight3D"]
+transform = Transform3D(0.692488, 0.342814, -0.634775, -0.543744, -0.330258, -0.771539, -0.474134, 0.879436, -0.0422966, 7.68004, -0.563778, -4.56765)
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(0.999864, 0, 0.0165275, 0, 1, 0, -0.0165275, 0, 0.999864, 3.10462, 10.4376, 2.86856)
+fov = 122.431
+
+[node name="mano" parent="." instance=ExtResource("1_7x7fr")]
+transform = Transform3D(-0.93114, -0.296104, -0.212844, 0.0922114, 0.373515, -0.92303, 0.352812, -0.879095, -0.32049, 3.29228, 10.0257, -1.00077)
+script = ExtResource("2_o6ojg")
