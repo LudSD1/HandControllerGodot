@@ -1,0 +1,5 @@
+[gd_scene load_steps=2 format=3 uid="uid://dyu1j5mq2yb2"]
+
+[ext_resource type="PackedScene" uid="uid://cc6dsv43jeibw" path="res://assets/handmodel/mano.glb" id="1_u7e84"]
+
+[node name="mano" instance=ExtResource("1_u7e84")]
