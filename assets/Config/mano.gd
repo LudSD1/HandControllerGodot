@@ -1,7 +1,7 @@
 extends Node3D
-@export var HandControl = preload("res://mano.gd")
-
-
+var HandControl = preload("res://assets/Config/mano.gd")
+@export var area: Area3D
+var grabbed_object: Node3D = null
 const SENSITIVITY_GYRO: float = 0.09
 const SENSITIVITY_ACCEL = 0.09  # Reduced sensitivity
 const FINGER_ROTATION_SPEED = 0.09
@@ -9,26 +9,25 @@ const RECONNECT_DELAY = 5.0
 
 var camera: Camera3D
 
-# Position constraints
-#const POSITION_LIMITS = {
-#	"min": Vector3(-0.15, -0.15, -0.15),
-#	"max": Vector3(0.15, 0.15, 0.15)
-#}
 
 const POSITION_LIMITS = {
 	"min": Vector3(-0.5, -0.8, -0.2),  # Aumentado para permitir más movimiento lateral y vertical
 	"max": Vector3(0.5, 0.8, 0.2)    # z es menor para mantener= la mano a una distancia cómoda
 }
 
+
 var initial_position: Vector3
+
 var smooth_position: Vector3
+
 var velocity: Vector3
+
 # Movement smoothing
+
 const POSITION_SMOOTHING = 0.90  # Higher = smoother
 const ROTATION_SMOOTHING = 0.95   # Higher = smoother
-
-# Add rotation limits to prevent excessive spinning
 const MAX_ROTATION_RATE = PI  # Maximum rotation rate in radians per second
+
 const GYRO_DEADZONE = 0.01      # Ignore very small rotations
 const MAX_ROTATION_ANGLE = PI
 
@@ -36,13 +35,18 @@ const VELOCITY_DAMPING = 0.97
 const ACCELERATION_DEADZONE = 15  # Increased from 100
 const ACCEL_DEADZONE = 15
 
+
+
 class HandBone:
+
 	var name: String
+
 	var bone_index: int
 	var rotation_axis: Vector3
 	var current_rotation: float
 	var target_rotation: float
 	var original_transform: Transform3D
+	
 	
 	func _init(n: String, idx: int, axis: Vector3, ):
 		name = n
@@ -52,6 +56,7 @@ class HandBone:
 		target_rotation = 0.0
 
 class HandController:
+	var grabbed_object: Node3D = null
 	var socket: WebSocketPeer
 	var skeleton: Skeleton3D
 	var hand_root: Node3D
@@ -62,7 +67,7 @@ class HandController:
 	var current_rotation: Quaternion = Quaternion.IDENTITY
 	var target_rotation: Quaternion = Quaternion.IDENTITY
 	var accumulated_rotation: Vector3 = Vector3.ZERO
-	
+	var current_scene_tree: SceneTree
 	# Movement smoothing variables
 	var velocity: Vector3 = Vector3.ZERO
 	var smooth_position: Vector3 = Vector3.ZERO
@@ -77,12 +82,13 @@ class HandController:
 		"pinky": {"bone": "Hueso.023", "axis": Vector3(1, -1, 0).normalized()}
 	}
 	
-	func _init(root: Node3D, skel: Skeleton3D, cam: Camera3D):
+	func _init(root: Node3D, skel: Skeleton3D, cam: Camera3D, scene_tree: SceneTree):
 		hand_root = root
 		skeleton = skel
 		camera = cam
 		socket = WebSocketPeer.new()
 		bones = {}
+		current_scene_tree = scene_tree
 		is_connecting = false
 		initial_position = root.position
 		velocity = Vector3.ZERO
@@ -97,8 +103,38 @@ class HandController:
 				var bone = HandBone.new(data.bone, bone_index, data.axis)
 				bone.original_transform = skeleton.get_bone_global_pose(bone_index)
 				bones[finger] = bone
+
+
+
+	func toggle_finger_grab_state() -> void:
 	
+		for finger_name in ["index", "middle", "ring", "pinky"]:
+			if finger_name in bones:
+				var bone = bones[finger_name]
+			# Toggle between fully bent (grab) and straight (release)
+				bone.target_rotation = -PI/2 if bone.target_rotation == 0.0 else 0.0
+
+	func force_grab_state() -> void:
 	
+		for finger_name in ["index", "middle", "ring", "pinky"]:
+			if finger_name in bones:
+				var bone = bones[finger_name]
+			# Force fingers to grab position
+				bone.target_rotation = -PI/2
+
+	func force_release_state() -> void:
+		for finger_name in ["index", "middle", "ring", "pinky"]:
+			if finger_name in bones:
+				var bone = bones[finger_name]
+			# Force fingers to release position
+				bone.target_rotation = 0.0
+
+
+
+
+
+
+
 	func reset_rotation() -> void:
 		current_rotation = Quaternion.IDENTITY
 		target_rotation = Quaternion.IDENTITY
@@ -178,7 +214,37 @@ class HandController:
 		if finger_name in bones:	
 			var bone = bones[finger_name]
 			bone.target_rotation = -PI/2 if state == 1 else 0.0
-	
+
+	func check_grab_condition() -> bool:
+	# Devuelve verdadero si todos los dedos (excepto el pulgar) están doblados
+		var all_fingers_bent = true
+		for finger_name in ["index", "middle", "ring", "pinky"]:
+			if finger_name in bones:
+				var bone = bones[finger_name]
+				if abs(bone.current_rotation) < PI / 2:  # Si el dedo no está suficientemente doblado
+					all_fingers_bent = false
+					break
+		return all_fingers_bent
+
+
+
+	func grab_object(object: Node3D) -> void:
+		if object is RigidBody3D:
+			object.mode = PhysicsServer3D.BODY_MODE_STATIC  # Cambiar a modo estático
+		object.set_parent(self)  # Adjunta el objeto a la mano
+		grabbed_object.set_parent(current_scene_tree.root)  # Ajusta su posición a la de la mano
+		print("Objeto agarrado: ", object.name)
+
+
+	func release_object() -> void:
+		if grabbed_object != null:
+			grabbed_object.set_parent(current_scene_tree.root)  # Attach back to the scene root
+			if grabbed_object is RigidBody3D:
+				grabbed_object.mode = PhysicsServer3D.BODY_MODE_RIGID  # Restore physics mode
+			print("Objeto liberado: ", grabbed_object.name)
+			grabbed_object = null
+
+
 	func apply_rotation(gx: float, gy: float, gz: float, delta: float) -> void:
 		# Apply deadzone to reduce drift
 		
@@ -294,11 +360,7 @@ class HandController:
 			pos.z <= POSITION_LIMITS.min.z or pos.z >= POSITION_LIMITS.max.z
 	)
 
-
-
-
-		
-	func update_bones(delta: float) -> void:
+	func update_bones(_delta: float) -> void:
 		for finger in bones:
 			var bone = bones[finger]
 			if bone.current_rotation != bone.target_rotation:
@@ -319,9 +381,10 @@ class HandController:
 					true
 				)
 
+
+
+
 var controller: HandController
-
-
 
 
 func _ready() -> void:
@@ -330,27 +393,61 @@ func _ready() -> void:
 	smooth_position = initial_position
 	velocity = Vector3.ZERO
 	
-	
-	
+	$Area3D.connect("body_entered", Callable(self, "_on_body_entered"))
+	$Area3D.connect("body_exited", Callable(self, "body_exited"))
 	
 	var skeleton_node = $Esqueleto/Skeleton3D  # Ajusta esta ruta según tu árbol de nodos
 	if skeleton_node == null:
 		push_error("Skeleton3D node not found!")
 		return
-	controller = HandController.new(self, skeleton_node, camera)
+	controller = HandController.new(self, skeleton_node, camera, get_tree())
 	controller.connect_to_server(ConnectionManager.last_url)
 	position = camera.position + (-camera.global_transform.basis.z * 1.5)
 	initial_position = position
 	smooth_position = initial_position
-
+	
+	if area == null:
+		# Create an Area3D if not set in the editor
+		area = Area3D.new()
+		add_child(area)
+		# Optional: Configure the area
+		var collision_shape = CollisionShape3D.new()
+		var shape = SphereShape3D.new()
+		shape.radius = 1.0  # Adjust radius as needed
+		collision_shape.shape = shape
+		area.add_child(collision_shape)
 
 
 func _process(delta: float) -> void:
 	if controller != null:
 		controller.process_socket(delta)
-		controller.update_bones(delta)
+		controller.update_bones(delta)   
+		# Detectar condición de agarre
+		
+	if area != null and area.get_overlapping_bodies().size() > 0:
+		if grabbed_object == null and controller.check_grab_condition():
+			var body = area.get_overlapping_bodies()[0]
+			if body.is_in_group("grabbable"):
+				grabbed_object = body
+				controller.grab_object(grabbed_object)
+		elif grabbed_object != null and not controller.check_grab_condition():
+			controller.release_object()
+			grabbed_object = null
+		if area.get_overlapping_bodies().size() > 0:
+			var body = area.get_overlapping_bodies()[0]
+			if body.is_in_group("grabbable"):
+				print("Objeto detectado:", body.name)
+
+
+func _on_body_entered(body):
+	print("Cuerpo detectado: ", body.name)
+func _on_body_exited(body):
+	print("Cuerpo salió del área: ", body.name)
 
 
 func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"): # ESC key
 		get_tree().change_scene_to_file("res://Interface.tscn")
+	if event.is_action_pressed("toggle_grab"):
+		if controller:
+			controller.toggle_finger_grab_state()
